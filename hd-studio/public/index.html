@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="id"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HD Studio – HD Foto, Video & Sticker</title>
+<style>
+:root{--bg:#0b0d12;--card:#151922;--tx:#eef1f6;--mut:#8b94a7;--ac:#7c5cff;--br:#252b38}
+@media(prefers-color-scheme:light){:root{--bg:#f5f6fa;--card:#fff;--tx:#12151c;--mut:#5d6677;--br:#dde1ea}}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--tx)}
+header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;max-width:900px;margin:auto}
+a{color:var(--ac)}main{max-width:900px;margin:auto;padding:0 20px 90px}
+.tabs{display:flex;gap:8px;margin:12px 0}.tabs button{flex:1}
+button{background:var(--card);color:var(--tx);border:1px solid var(--br);padding:10px 14px;border-radius:10px;cursor:pointer;font-size:14px}
+button.on,button.go{background:var(--ac);border-color:var(--ac);color:#fff}button:disabled{opacity:.5}
+.card{background:var(--card);border:1px solid var(--br);border-radius:14px;padding:18px;display:none}.card.on{display:block}
+input,select,textarea{width:100%;padding:10px;border-radius:10px;border:1px solid var(--br);background:var(--bg);color:var(--tx);margin:6px 0 12px}
+img,video{max-width:100%;border-radius:10px;margin-top:10px}p.m{color:var(--mut);font-size:13px}
+#chat{position:fixed;right:16px;bottom:16px;width:min(340px,calc(100vw - 32px))}
+#cb{display:none;background:var(--card);border:1px solid var(--br);border-radius:14px;padding:10px;margin-bottom:8px}
+#log{height:240px;overflow:auto;font-size:14px}#log div{margin:6px 0;white-space:pre-wrap}.u{text-align:right;color:var(--ac)}
+#hg{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}#hg img,#hg video{margin:0;width:100%;aspect-ratio:1;object-fit:cover}
+#auth{max-width:380px;margin:40px auto}.row{display:flex;gap:8px;align-items:center}</style></head><body>
+<header><b>✨ HD Studio</b><a href="https://portfolio-fahril.vercel.app/" target="_blank" rel="noopener">Portfolio Fahril →</a></header>
+<main>
+<section id="auth" class="card on"><h3>Login dulu</h3>
+<input id="em" type="email" placeholder="email kamu"><button class="go" id="bl">Kirim link login</button>
+<button id="bg" style="margin-top:8px;width:100%">Login dengan Google</button><p class="m" id="sa">Limit & riwayat disimpan per akun.</p></section>
+<div id="app" hidden>
+<div class="row" style="justify-content:flex-end"><span class="m" id="who"></span><button id="lo">Keluar</button></div>
+<div class="tabs"><button class="on" data-t="img">HD Foto</button><button data-t="vid">HD Video</button><button data-t="stk">Sticker</button><button data-t="his">Riwayat</button></div>
+
+<section id="img" class="card on">
+<input type="file" id="f" accept="image/png,image/jpeg,image/webp">
+<select id="sc"><option value="2">2x</option><option value="4">4x</option></select>
+<button class="go" id="bi">HD-in Foto</button><p class="m" id="si">Maks 3MB • 8x per hari</p><img id="oi" hidden></section>
+
+<section id="vid" class="card">
+<input id="vu" placeholder="Link video (https://...mp4)">
+<button class="go" id="bv">HD-in Video</button><p class="m" id="sv">Pakai link langsung ke file video • 2x per hari • proses bisa beberapa menit</p><video id="ov" controls hidden></video></section>
+
+<section id="stk" class="card">
+<input id="sp" maxlength="200" placeholder="Contoh: kucing lucu pakai kacamata">
+<button class="go" id="bs">Buat Sticker</button><p class="m" id="ss">10x per hari</p><img id="os" hidden></section>
+<section id="his" class="card"><div id="hg"></div><p class="m" id="sh"></p></section>
+</div></main>
+
+<div id="chat" hidden><div id="cb"><div id="log"></div><input id="ci" maxlength="1000" placeholder="Tanya AI..."><button class="go" id="cs">Kirim</button></div><button class="go" id="ct">💬 Chat AI</button></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+let sb,session;
+const api=async(p,b)=>{const r=await fetch('/api/'+p,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},body:JSON.stringify(b)});const d=await r.json();if(!r.ok)throw new Error(d.error||'Error');return d};
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button,.card').forEach(x=>x.classList.remove('on'));b.classList.add('on');$(b.dataset.t).classList.add('on')});
+
+async function poll(id,st,btn,done){
+  for(let i=0;i<120;i++){
+    await new Promise(r=>setTimeout(r,3000));
+    const d=await api('status',{id});
+    st.textContent='Status: '+d.status;
+    if(d.status==='succeeded'){done(d.output);loadHistory();break}
+    if(d.status==='failed'||d.status==='canceled'){st.textContent='Gagal diproses';break}
+  }
+  btn.disabled=false;
+}
+async function run(btn,st,fn){btn.disabled=true;st.textContent='Mengirim...';try{await fn()}catch(e){st.textContent='⚠️ '+e.message;btn.disabled=false}}
+
+// Resize biar muat limit 3MB
+function toDataUrl(file){return new Promise((ok,no)=>{const img=new Image();img.onload=()=>{let w=img.width,h=img.height,m=1600;if(Math.max(w,h)>m){const k=m/Math.max(w,h);w*=k;h*=k}const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);ok(c.toDataURL('image/jpeg',.9))};img.onerror=no;img.src=URL.createObjectURL(file)})}
+
+$('bi').onclick=()=>run($('bi'),$('si'),async()=>{
+  const f=$('f').files[0];if(!f)throw new Error('Pilih foto dulu');
+  const {id}=await api('upscale',{type:'image',image:await toDataUrl(f),scale:$('sc').value});
+  await poll(id,$('si'),$('bi'),u=>{$('oi').src=u;$('oi').hidden=false;$('si').innerHTML='Selesai! <a href="'+u+'" target="_blank" rel="noopener">Download</a>'});
+});
+$('bv').onclick=()=>run($('bv'),$('sv'),async()=>{
+  const {id}=await api('upscale',{type:'video',video:$('vu').value.trim()});
+  await poll(id,$('sv'),$('bv'),u=>{$('ov').src=u;$('ov').hidden=false;$('sv').innerHTML='Selesai! <a href="'+u+'" target="_blank" rel="noopener">Download</a>'});
+});
+$('bs').onclick=()=>run($('bs'),$('ss'),async()=>{
+  const {id}=await api('sticker',{prompt:$('sp').value});
+  await poll(id,$('ss'),$('bs'),u=>{$('os').src=u;$('os').hidden=false;$('ss').innerHTML='Selesai! <a href="'+u+'" target="_blank" rel="noopener">Download</a>'});
+});
+
+// Chat
+$('ct').onclick=()=>{const b=$('cb');b.style.display=b.style.display==='block'?'none':'block'};
+const add=(c,t)=>{const d=document.createElement('div');d.className=c;d.textContent=t;$('log').append(d);$('log').scrollTop=1e9};
+$('cs').onclick=async()=>{const t=$('ci').value.trim();if(!t)return;$('ci').value='';add('u',t);
+  try{const d=await api('chat',{message:t});add('a',d.reply)}catch(e){add('a','⚠️ '+e.message)}};
+$('ci').onkeydown=e=>{if(e.key==='Enter')$('cs').click()};
+
+function setSession(x){session=x;$('auth').style.display=x?'none':'block';$('app').hidden=!x;$('chat').hidden=!x;
+  if(x){$('who').textContent=x.user.email;loadHistory();loadChat()}}
+async function loadHistory(){const {data}=await sb.from('generations').select('kind,output_url,prompt,created_at').eq('status','done').order('created_at',{ascending:false}).limit(30);
+  const g=$('hg');g.replaceChildren();(data||[]).forEach(r=>{const e=document.createElement(r.kind==='video'?'video':'img');e.src=r.output_url;if(r.kind==='video')e.controls=true;e.title=r.prompt||new Date(r.created_at).toLocaleString();
+    if(r.kind!=='video')e.onclick=()=>window.open(r.output_url,'_blank','noopener');g.append(e)});
+  $('sh').textContent=data&&data.length?'Foto & sticker tersimpan permanen. Link video Replicate bisa kedaluwarsa ±1 jam, download segera.':'Belum ada riwayat.'}
+async function loadChat(){const {data}=await sb.from('chat_messages').select('role,content').order('created_at',{ascending:true}).limit(50);
+  $('log').replaceChildren();(data||[]).forEach(m=>add(m.role==='user'?'u':'a',m.content))}
+$('bl').onclick=async()=>{const {error}=await sb.auth.signInWithOtp({email:$('em').value.trim(),options:{emailRedirectTo:location.origin}});$('sa').textContent=error?'⚠️ '+error.message:'Cek email kamu, klik link login.'};
+$('bg').onclick=()=>sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin}});
+$('lo').onclick=()=>sb.auth.signOut();
+(async()=>{const c=await (await fetch('/api/config')).json();sb=supabase.createClient(c.url,c.anon);
+  const {data}=await sb.auth.getSession();setSession(data.session);sb.auth.onAuthStateChange((_e,x)=>setSession(x))})();
+</script></body></html>
